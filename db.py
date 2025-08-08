@@ -897,22 +897,49 @@ st.dataframe(
     use_container_width=True
 )
 
-# ── Intraday Imbalance trend (09:00-16:00) ──────────────────────────────
+# ── Intraday Imbalance trend (09:15–16:00) ──────────────────────────────
 df_trend = mem.intraday.to_dataframe()
-if not df_trend.empty:
-    fig_trend = px.line(
-        df_trend,
-        x=df_trend.index,
-        y="imbalance_pct",
-        title="Intraday Imbalance % (live)",
-        markers=True
-    )
-    fig_trend.update_layout(
-        xaxis_title="Time (IST)",
-        yaxis_title="Imbalance %",
-        margin=dict(t=60, r=20, l=20, b=40),
-        height=350
-    )
-    st.plotly_chart(fig_trend, use_container_width=True)
+
+if df_trend.empty:
+    st.info("Imbalance trend will appear after 09:15 IST once data accumulates.")
 else:
-    st.info("Imbalance trend will appear after 09:00 IST once data accumulates.")
+    # keep only today’s trading session window
+    df_trend = df_trend.between_time("09:15", "16:00")
+
+    if df_trend.empty:
+        st.info("No points yet for today after 09:15 IST.")
+    else:
+        # NOTE: IntradayImbSeries uses column name 'imb'
+        ycol = "imb"   # change to "imbalance_pct" only if you actually renamed it in to_dataframe()
+
+        fig_trend = px.line(
+            df_trend,
+            x=df_trend.index,
+            y=ycol,
+            title="Intraday Imbalance % (live)",
+            markers=True,
+        )
+
+        y_min = df_trend[ycol].min()
+        y_max = df_trend[ycol].max()
+        if pd.isna(y_min) or pd.isna(y_max):
+            ycap = 10
+        else:
+            yabs = max(abs(float(y_min)), abs(float(y_max)))
+            ycap = max(10, math.ceil(yabs / 10.0) * 10)  # round up to nearest 10, at least ±10
+
+        fig_trend.update_layout(
+            xaxis_title="Time (IST)",
+            yaxis_title="Imbalance %",
+            yaxis=dict(
+                range=[-ycap, ycap],
+                dtick=10,
+                ticksuffix="%",
+                zeroline=True,
+                zerolinewidth=1,
+            ),
+            margin=dict(t=60, r=20, l=20, b=40),
+            height=350,
+        )
+
+        st.plotly_chart(fig_trend, use_container_width=True)
