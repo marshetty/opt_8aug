@@ -903,30 +903,40 @@ df_trend = mem.intraday.to_dataframe()
 if df_trend.empty:
     st.info("Imbalance trend will appear after 09:15 IST once data accumulates.")
 else:
-    # keep only today’s trading session window
+    # Keep only session window
     df_trend = df_trend.between_time("09:15", "16:00")
 
     if df_trend.empty:
         st.info("No points yet for today after 09:15 IST.")
     else:
-        # NOTE: IntradayImbSeries uses column name 'imb'
-        ycol = "imb"   # change to "imbalance_pct" only if you actually renamed it in to_dataframe()
+        # Decide which y column we actually have
+        ycol = "imbalance_pct" if "imbalance_pct" in df_trend.columns else "imb"
 
+        # Reset index so Plotly gets a proper time column; make time tz-naive
+        df_plot = (
+            df_trend
+            .reset_index()                       # 'ts' becomes a column
+            .rename(columns={"ts": "Time", ycol: "Imbalance %"})
+        )
+        # Ensure Time is naive datetime for Plotly
+        if pd.api.types.is_datetime64_any_dtype(df_plot["Time"]):
+            if getattr(df_plot["Time"].dt, "tz", None) is not None:
+                df_plot["Time"] = df_plot["Time"].dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+
+        # Build figure
         fig_trend = px.line(
-            df_trend,
-            x=df_trend.index,
-            y=ycol,
+            df_plot,
+            x="Time",
+            y="Imbalance %",
             title="Intraday Imbalance % (live)",
             markers=True,
         )
 
-        y_min = df_trend[ycol].min()
-        y_max = df_trend[ycol].max()
-        if pd.isna(y_min) or pd.isna(y_max):
-            ycap = 10
-        else:
-            yabs = max(abs(float(y_min)), abs(float(y_max)))
-            ycap = max(10, math.ceil(yabs / 10.0) * 10)  # round up to nearest 10, at least ±10
+        # Symmetric Y range in steps of 10
+        y_min = float(df_plot["Imbalance %"].min())
+        y_max = float(df_plot["Imbalance %"].max())
+        yabs = max(abs(y_min), abs(y_max))
+        ycap = max(10, math.ceil(yabs / 10.0) * 10)  # at least ±10
 
         fig_trend.update_layout(
             xaxis_title="Time (IST)",
@@ -934,6 +944,7 @@ else:
             yaxis=dict(
                 range=[-ycap, ycap],
                 dtick=10,
+                tick0=0,
                 ticksuffix="%",
                 zeroline=True,
                 zerolinewidth=1,
